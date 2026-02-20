@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Transdutores - TechnipFMC</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>Controle de Transdutores</h1>
+    </div>
+    <div class="container">
+        <div class="nav-bar">
+            <a href="{{ url_for('index') }}">Visualizar Transdutores</a>
+            <a href="{{ url_for('register') }}">Cadastrar Novo</a>
+            <a href="{{ url_for('check_notifications') }}">Verificar Notificações</a>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash-message flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <h2>Transdutores Cadastrados</h2>
+        
+        {% if transducers %}
+        <table class="transducer-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Descrição</th>
+                    <th>PSI</th>
+                    <th>Nº de Série</th>
+                    <th>Localização</th>
+                    <th>Validade (Dia/Mês/Ano)</th>
+                    <th>Dias para Vencer</th>
+                    <th>Status</th>
+                    <th>Status Calibração</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in transducers %}
+                <tr>
+                    <td>{{ t.id }}</td>
+                    <td>{{ t.descricao }}</td>
+                    <td>{{ t.psi }}</td>
+                    <td>{{ t.numero_serie }}</td>
+                    <td>{{ t.localizacao }}</td>
+                    <td>{{ t.validade_formatada }}</td>
+                    <td>{{ t.dias_restantes }}</td>
+                    <td>
+                        <span class="status-{{ t.status_class }}">
+                            {{ t.status_text }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if t.status_calibracao == 'Em Calibração' %}
+                            <span class="status-warning">EM CALIBRAÇÃO</span>
+                        {% else %}
+                            <span class="status-ok">OK</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                                <a href="{{ url_for('edit', transducer_id=t.id) }}" class="btn-primary">Editar</a>
+                            {% if t.status_calibracao != 'Em Calibração' %}
+                                <a href="{{ url_for('calibrate', transducer_id=t.id) }}" class="btn-primary btn-calibracao">Enviar Calibração</a>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('delete', transducer_id=t.id) }}" style="display:inline;">
+                                <button type="submit" class="btn-primary btn-delete" onclick="return confirm('Tem certeza que deseja excluir o transdutor {{ t.id }} - {{ t.descricao }}? Esta ação é irreversível.');">Excluir</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>Nenhum transdutor cadastrado. <a href="{{ url_for('register') }}">Cadastre um novo.</a></p>
+        {% endif %}
+    </div>
+</body>
+</html>
