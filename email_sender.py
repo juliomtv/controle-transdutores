@@ -82,15 +82,22 @@ def send_notification_email(config, transducers_to_notify):
     msg.attach(MIMEText(html_content, 'html'))
     
     try:
-        # Conecta ao servidor SMTP usando SMTPS (SSL/TLS implícito)
-        # SMTPS é frequentemente usado na porta 465
-        with smtplib.SMTP_SSL(config['SMTP_SERVER'], config['SMTP_PORT']) as server:
-            # Não é necessário starttls() para SMTP_SSL
+        # Conecta ao servidor SMTP
+        # Se a porta for 465, usa SMTP_SSL (SSL implícito)
+        # Se a porta for 587 ou outra, usa SMTP padrão e starttls()
+        if config['SMTP_PORT'] == 465:
+            server = smtplib.SMTP_SSL(config['SMTP_SERVER'], config['SMTP_PORT'])
+        else:
+            server = smtplib.SMTP(config['SMTP_SERVER'], config['SMTP_PORT'])
+            server.starttls() # Necessário para o Gmail na porta 587
+            
+        with server:
             server.login(config['EMAIL_USER'], config['EMAIL_PASSWORD'])
             server.sendmail(config['EMAIL_USER'], config['RECIPIENTS'], msg.as_string())
+            
         return f"E-mail de notificação enviado com sucesso via SMTPLib para {len(config['RECIPIENTS'])} destinatários."
     except Exception as e:
-        return f"Erro ao enviar e-mail de notificação via SMTPLib. Verifique as configurações no .env. Erro: {e}"
+        return f"Erro ao enviar e-mail de notificação via SMTPLib. Erro: {e}"
 
 if __name__ == '__main__':
     print("Módulo de envio de e-mail pronto para usar SMTPLib.")
