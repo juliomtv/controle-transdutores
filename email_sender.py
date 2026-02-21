@@ -82,22 +82,28 @@ def send_notification_email(config, transducers_to_notify):
     msg.attach(MIMEText(html_content, 'html'))
     
     try:
-        # Conecta ao servidor SMTP
-        # Se a porta for 465, usa SMTP_SSL (SSL implícito)
-        # Se a porta for 587 ou outra, usa SMTP padrão e starttls()
-        if config['SMTP_PORT'] == 465:
-            server = smtplib.SMTP_SSL(config['SMTP_SERVER'], config['SMTP_PORT'])
+        # Tenta conectar ao servidor SMTP
+        # O Gmail aceita 587 (STARTTLS) ou 465 (SSL/TLS)
+        port = int(config['SMTP_PORT'])
+        server_host = config['SMTP_SERVER']
+        
+        if port == 465:
+            server = smtplib.SMTP_SSL(server_host, port, timeout=10)
         else:
-            server = smtplib.SMTP(config['SMTP_SERVER'], config['SMTP_PORT'])
+            server = smtplib.SMTP(server_host, port, timeout=10)
             server.starttls() # Necessário para o Gmail na porta 587
             
         with server:
             server.login(config['EMAIL_USER'], config['EMAIL_PASSWORD'])
             server.sendmail(config['EMAIL_USER'], config['RECIPIENTS'], msg.as_string())
             
-        return f"E-mail de notificação enviado com sucesso via SMTPLib para {len(config['RECIPIENTS'])} destinatários."
+        return f"E-mail de notificação enviado com sucesso para {len(config['RECIPIENTS'])} destinatários."
     except Exception as e:
-        return f"Erro ao enviar e-mail de notificação via SMTPLib. Erro: {e}"
+        # Log de erro mais detalhado para ajudar no diagnóstico
+        error_msg = str(e)
+        if "10054" in error_msg:
+            return f"Erro: Conexão encerrada pelo Gmail (10054). Verifique se você está usando uma 'Senha de App' e se a porta {config['SMTP_PORT']} está aberta na sua rede."
+        return f"Erro ao enviar e-mail: {error_msg}"
 
 if __name__ == '__main__':
     print("Módulo de envio de e-mail pronto para usar SMTPLib.")

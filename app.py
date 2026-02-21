@@ -16,7 +16,7 @@ CSV_HEADERS = ['id', 'descricao', 'validade_data_completa', 'numero_serie', 'loc
 # Configurações de E-mail (SMTPLib)
 EMAIL_CONFIG = {
     'SMTP_SERVER': os.environ.get('SMTP_SERVER', 'smtp.gmail.com'), # Servidor SMTP do Gmail
-    'SMTP_PORT': int(os.environ.get('SMTP_PORT', 587)), # Porta 587 para TLS
+    'SMTP_PORT': int(os.environ.get('SMTP_PORT', 465)), # Porta 465 (SSL) costuma ser mais estável em redes corporativas
     'EMAIL_USER': os.environ.get('EMAIL_USER', 'controletransdutores@gmail.com'),
     'EMAIL_PASSWORD': os.environ.get('EMAIL_PASSWORD', 'acesso2026@'), # Senha da conta do Gmail
     'RECIPIENTS': [r.strip() for r in os.environ.get('RECIPIENTS', 'julio.marcostavaresviana@technipfmc.com').split(',')]
