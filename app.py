@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -427,14 +428,28 @@ def start_cloudflare_tunnel():
             
             # Procura pela URL pública
             if 'https://' in line and 'trycloudflare' in line:
+                match = re.search(r'https://[\w\-]+\.trycloudflare\.com', line)
+                tunnel_url = match.group(0) if match else line.strip()
+
                 print("="*60)
                 print(f"\n🎉 URL PÚBLICA DISPONÍVEL:\n")
-                print(f"   🔗 {line.strip()}\n")
+                print(f"   🔗 {tunnel_url}\n")
                 print("="*60)
                 print(f"\nCompartilhe essa URL para acessar sua app de qualquer lugar!")
                 print(f"Você pode fechar esse terminal sem interromper o tunnel.\n")
                 url_found = True
                 sys.stdout.flush()
+
+                try:
+                    send_teams_notification(
+                        FLOW_TEAMS_URL,
+                        f"🚀 **Servidor iniciado!**\n\n"
+                        f"O sistema de controle de transdutores está online.\n\n"
+                        f"🔗 **Acesse agora:** {tunnel_url}"
+                    )
+                    print("📨 Notificação de inicialização enviada ao Teams.\n")
+                except Exception as e:
+                    print(f"⚠️ Não foi possível notificar o Teams: {e}\n")
             elif 'Connection established' in line:
                 if not url_found:
                     print("✅ Conexão estabelecida com Cloudflare")
