@@ -1,12 +1,18 @@
+import sys
 import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import csv
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash
 from calendar import monthrange
-from email_sender import send_notification_email 
+from teams_sender import send_teams_notification
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'uma_chave_secreta_padrao_e_segura')
+FLOW_TEAMS_URL ="https://default0804c95193a0405d80e4fa87c7551d.6a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/770951624429435d97f8cd54cd329e3e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=W6ekuZDzWCoVLGLtXrF1s9_lpEo97o4OZYCCYHjghMo"
+
 
 # Configurações do CSV
 CSV_FILE = os.path.join(os.path.dirname(__file__), 'data.csv')
@@ -133,16 +139,13 @@ def calculate_validity(transducer):
         return transducer
         
     try:
-        # Tenta parsear a data completa
+    # Aceita YYYY-MM-DD
         validade_date = datetime.strptime(validade_str, '%Y-%m-%d')
     except ValueError:
-        # Caso a data esteja em formato inválido (ex: YYYY-MM)
         try:
-            year, month = map(int, validade_str.split('-'))
-            last_day = monthrange(year, month)[1]
-            validade_date = datetime(year, month, last_day)
+            # Aceita DD/MM/YYYY (seu caso)
+            validade_date = datetime.strptime(validade_str, '%d/%m/%Y')
         except ValueError:
-            # Caso a data esteja em formato inválido
             transducer['dias_restantes'] = 'Erro de Data'
             transducer['status_class'] = 'danger'
             transducer['status_text'] = 'Data Inválida'
@@ -177,29 +180,93 @@ def calculate_validity(transducer):
 # --- Lógica de Notificação (Sem Alteração) ---
 
 def check_for_notifications():
-    """Verifica quais transdutores precisam de notificação e envia o e-mail."""
+    """
+    Envia alertas no Teams para:
+    - 15 dias
+    - 10 dias
+    - 5 dias
+    - 0 dias (vence hoje)
+    - vencidos (todos os dias após vencer)
+    """
+
     transducers = read_transducers()
     transducers_with_status = [calculate_validity(t) for t in transducers]
-    
-    transducers_to_notify = []
-    
+
+    alert_groups = {
+        15: [],
+        10: [],
+        5: [],
+        0: [],
+        "vencidos": []
+    }
+
     for t in transducers_with_status:
-        # Verifica se a data de validade é válida e se está próximo do vencimento
-        # E se não estiver em calibração
-        if t.get('status_calibracao') != 'Em Calibração' and isinstance(t['dias_restantes'], int) and t['dias_restantes'] >= 0:
-            # Notifica com 10 ou 5 dias
-            if t['dias_restantes'] <= 10 or t['dias_restantes'] == 5:
-                transducers_to_notify.append(t)
-    
-    if transducers_to_notify:
-        # Remove a chave 'validade_date' antes de enviar para o email_sender
-        for t in transducers_to_notify:
-            t.pop('validade_date', None)
-            
-        result = send_notification_email(EMAIL_CONFIG, transducers_to_notify)
-        return result
-    
-    return "Nenhuma notificação de vencimento necessária hoje."
+        if t.get("status_calibracao") == "Em Calibração":
+            continue
+
+        dias = t.get("dias_restantes")
+
+        if not isinstance(dias, int):
+            continue
+
+        if dias == 15:
+            alert_groups[15].append(t)
+        elif dias == 10:
+            alert_groups[10].append(t)
+        elif dias == 5:
+            alert_groups[5].append(t)
+        elif dias == 0:
+            alert_groups[0].append(t)
+        elif dias < 0:
+            alert_groups["vencidos"].append(t)
+
+    if not any(alert_groups.values()):
+        return "Nenhum transdutor com alertas para hoje."
+
+    mensagens = []
+
+    def format_items(items):
+        return "\n".join(
+            f"- **ID {t['id']}** | {t['descricao']} | Validade: {t['validade_formatada']} | Local: {t['localizacao']}"
+            for t in items
+        )
+
+    if alert_groups[15]:
+        mensagens.append(
+            "🟡 **ALERTA – 15 DIAS PARA VENCER**\n\n"
+            + format_items(alert_groups[15])
+        )
+
+    if alert_groups[10]:
+        mensagens.append(
+            "🟠 **ALERTA – 10 DIAS PARA VENCER**\n\n"
+            + format_items(alert_groups[10])
+        )
+
+    if alert_groups[5]:
+        mensagens.append(
+            "🔴 **ALERTA – 5 DIAS PARA VENCER**\n\n"
+            + format_items(alert_groups[5])
+        )
+
+    if alert_groups[0]:
+        mensagens.append(
+            "🚨 **ALERTA – VENCE HOJE**\n\n"
+            + format_items(alert_groups[0])
+        )
+
+    if alert_groups["vencidos"]:
+        mensagens.append(
+            "❌ **TRANSDUTORES VENCIDOS**\n\n"
+            + format_items(alert_groups["vencidos"])
+        )
+
+    mensagem_final = "\n\n---\n\n".join(mensagens)
+
+    send_teams_notification(FLOW_TEAMS_URL, mensagem_final)
+
+    return "Notificações enviadas com sucesso para o Teams."
+
 
 # --- Rotas Flask ---
 
@@ -304,5 +371,113 @@ def check_notifications():
     flash(result, 'info')
     return redirect(url_for('index'))
 
+import threading
+import time
+import subprocess
+
+def notification_scheduler():
+    """
+    Executa a verificação de notificações automaticamente 1x por dia
+    enquanto o Flask estiver rodando.
+    """
+    time.sleep(10)  # espera o Flask subir completamente
+
+    while True:
+        try:
+            print("⏰ Verificando notificações automaticamente...")
+            resultado = check_for_notifications()
+            print("✅ Resultado:", resultado)
+        except Exception as e:
+            print("❌ Erro no scheduler de notificações:", e)
+
+        # Dorme 24 horas
+        time.sleep(60 * 60 * 24)
+
+
+def start_cloudflare_tunnel():
+    """
+    Inicia um tunnel Cloudflare Tunnel (cloudflared) para expor a aplicação.
+    """
+    import time as time_module
+    time_module.sleep(2)  # Aguarda o Flask iniciar
+    
+    try:
+        print("\n" + "="*60)
+        print("🚀 Iniciando Cloudflare Tunnel...")
+        print("="*60)
+        
+        # Cria um tunnel HTTP apontando para localhost:5000
+        tunnel_process = subprocess.Popen(
+            ['cloudflared', 'tunnel', '--url', 'http://localhost:5000'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        print("✅ Cloudflare Tunnel iniciado com sucesso!\n")
+        print("Aguardando URL pública...\n")
+        
+        # Lê a saída linha por linha até encontrar a URL
+        url_found = False
+        for line in iter(tunnel_process.stdout.readline, ''):
+            if not line:
+                break
+            line = line.rstrip()
+            
+            # Procura pela URL pública
+            if 'https://' in line and 'trycloudflare' in line:
+                print("="*60)
+                print(f"\n🎉 URL PÚBLICA DISPONÍVEL:\n")
+                print(f"   🔗 {line.strip()}\n")
+                print("="*60)
+                print(f"\nCompartilhe essa URL para acessar sua app de qualquer lugar!")
+                print(f"Você pode fechar esse terminal sem interromper o tunnel.\n")
+                url_found = True
+                sys.stdout.flush()
+            elif 'Connection established' in line:
+                if not url_found:
+                    print("✅ Conexão estabelecida com Cloudflare")
+                    sys.stdout.flush()
+        
+        return tunnel_process
+        
+    except FileNotFoundError:
+        print("\n" + "="*60)
+        print("❌ ERRO: cloudflared não encontrado!")
+        print("="*60)
+        print("\n📦 Por favor, instale o Cloudflared:")
+        print("   Windows: execute 'install_cloudflared.bat'")
+        print("   Ou: python setup_cloudflare.py")
+        print("="*60 + "\n")
+        return None
+    except Exception as e:
+        print(f"\n❌ Erro ao iniciar Cloudflare Tunnel: {e}\n")
+        return None
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    print("\n")
+    print("╔" + "═"*58 + "╗")
+    print("║" + " "*58 + "║")
+    print("║" + "  🎮 CONTROLE DE TRANSDUTORES COM CLOUDFLARE TUNNEL  ".center(58) + "║")
+    print("║" + " "*58 + "║")
+    print("╚" + "═"*58 + "╝")
+    print("\n")
+    
+    # Inicia o Cloudflare Tunnel em uma thread separada
+    tunnel_thread = threading.Thread(
+        target=start_cloudflare_tunnel,
+        daemon=True
+    )
+    tunnel_thread.start()
+    
+    # Inicia o scheduler de notificações
+    threading.Thread(
+        target=notification_scheduler,
+        daemon=True
+    ).start()
+    
+    # Inicia o servidor Flask (sem debug para evitar reinicializações)
+    print("🌐 Iniciando servidor Flask em http://localhost:5000\n")
+    app.run(debug=False, host='localhost', port=5000, use_reloader=False)
